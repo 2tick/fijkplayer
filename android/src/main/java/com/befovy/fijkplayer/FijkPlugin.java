@@ -1,24 +1,24 @@
-//MIT License
+// MIT License
 //
-//Copyright (c) [2019-2020] [Befovy]
+// Copyright (c) [2019-2020] [Befovy]
 //
-//Permission is hereby granted, free of charge, to any person obtaining a copy
-//of this software and associated documentation files (the "Software"), to deal
-//in the Software without restriction, including without limitation the rights
-//to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-//copies of the Software, and to permit persons to whom the Software is
-//furnished to do so, subject to the following conditions:
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
 //
-//The above copyright notice and this permission notice shall be included in all
-//copies or substantial portions of the Software.
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
 //
-//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-//IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-//AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-//LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-//OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-//SOFTWARE.
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
 
 package com.befovy.fijkplayer;
 
@@ -54,7 +54,6 @@ import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler;
 import io.flutter.plugin.common.MethodChannel.Result;
-import io.flutter.plugin.common.PluginRegistry.Registrar;
 import io.flutter.view.TextureRegistry;
 import tv.danmaku.ijk.media.player.IjkMediaPlayer;
 
@@ -63,16 +62,15 @@ import tv.danmaku.ijk.media.player.IjkMediaPlayer;
  */
 public class FijkPlugin implements MethodCallHandler, FlutterPlugin, ActivityAware, FijkEngine, FijkVolume.VolumeKeyListener, AudioManager.OnAudioFocusChangeListener {
 
-    // show system volume changed UI if no playable player
-    // hide system volume changed UI if some players are in playable state
+    // Show system volume changed UI if no playable player
+    // Hide system volume changed UI if some players are in playable state
     private static final int NO_UI_IF_PLAYABLE = 0;
-    // show system volume changed UI if no start state player
-    // hide system volume changed UI if some players are in start state
+    // Show system volume changed UI if no start state player
+    // Hide system volume changed UI if some players are in start state
     private static final int NO_UI_IF_PLAYING = 1;
-    // never show system volume changed UI
-    @SuppressWarnings("unused")
+    // Never show system volume changed UI
     private static final int NEVER_SHOW_UI = 2;
-    // always show system volume changed UI
+    // Always show system volume changed UI
     private static final int ALWAYS_SHOW_UI = 3;
 
     final private SparseArray<FijkPlayer> fijkPlayers = new SparseArray<>();
@@ -81,7 +79,6 @@ public class FijkPlugin implements MethodCallHandler, FlutterPlugin, ActivityAwa
 
     private WeakReference<Activity> mActivity;
     private WeakReference<Context> mContext;
-    private Registrar mRegistrar;
     private FlutterPluginBinding mBinding;
 
     // Count of playable players
@@ -91,31 +88,17 @@ public class FijkPlugin implements MethodCallHandler, FlutterPlugin, ActivityAwa
     private int volumeUIMode = ALWAYS_SHOW_UI;
     private float volStep = 1.0f / 16.0f;
     private boolean eventListening = false;
-    // non-local field prevent GC
+    // Non-local field to prevent GC
     private EventChannel mEventChannel;
     private Object mAudioFocusRequest;
     private boolean mAudioFocusRequested = false;
 
-
-    /**
-     * Plugin registration.
-     */
-    @SuppressWarnings("unused")
-    public static void registerWith(Registrar registrar) {
-        final MethodChannel channel = new MethodChannel(registrar.messenger(), "befovy.com/fijk");
-        FijkPlugin plugin = new FijkPlugin();
-        plugin.initWithRegistrar(registrar);
-        channel.setMethodCallHandler(plugin);
-
-        final FijkPlayer player = new FijkPlayer(plugin, true);
-        player.setupSurface();
-        player.release();
-    }
-
     @Override
     public void onAttachedToEngine(@NonNull FlutterPluginBinding binding) {
         final MethodChannel channel = new MethodChannel(binding.getBinaryMessenger(), "befovy.com/fijk");
-        initWithBinding(binding);
+        mBinding = binding;
+        mContext = new WeakReference<>(binding.getApplicationContext());
+        init(binding.getBinaryMessenger());
         channel.setMethodCallHandler(this);
 
         final FijkPlayer player = new FijkPlayer(this, true);
@@ -132,6 +115,9 @@ public class FijkPlugin implements MethodCallHandler, FlutterPlugin, ActivityAwa
     @Override
     public void onDetachedFromEngine(@NonNull FlutterPluginBinding binding) {
         mContext = null;
+        mEventChannel.setStreamHandler(null);
+        mEventSink.setDelegate(null);
+        mBinding = null;
     }
 
     @Override
@@ -167,8 +153,6 @@ public class FijkPlugin implements MethodCallHandler, FlutterPlugin, ActivityAwa
     public TextureRegistry.SurfaceTextureEntry createSurfaceEntry() {
         if (mBinding != null) {
             return mBinding.getTextureRegistry().createSurfaceTexture();
-        } else if (mRegistrar != null) {
-            return mRegistrar.textures().createSurfaceTexture();
         }
         return null;
     }
@@ -178,8 +162,6 @@ public class FijkPlugin implements MethodCallHandler, FlutterPlugin, ActivityAwa
     public BinaryMessenger messenger() {
         if (mBinding != null) {
             return mBinding.getBinaryMessenger();
-        } else if (mRegistrar != null) {
-            return mRegistrar.messenger();
         }
         return null;
     }
@@ -187,59 +169,35 @@ public class FijkPlugin implements MethodCallHandler, FlutterPlugin, ActivityAwa
     @Override
     @Nullable
     public Context context() {
-        if (mContext != null)
+        if (mContext != null) {
             return mContext.get();
-        else
-            return null;
+        }
+        return null;
     }
 
     @Nullable
     private Activity activity() {
-        if (mRegistrar != null) {
-            return mRegistrar.activity();
-        } else if (mActivity != null) {
+        if (mActivity != null) {
             return mActivity.get();
-        } else {
-            return null;
         }
+        return null;
     }
 
     @Override
     @Nullable
     public String lookupKeyForAsset(@NonNull String asset, @Nullable String packageName) {
-        String path = null;
         if (mBinding != null) {
             if (TextUtils.isEmpty(packageName)) {
-                path = mBinding.getFlutterAssets().getAssetFilePathByName(asset);
+                return mBinding.getFlutterAssets().getAssetFilePathByName(asset);
             } else {
-                //noinspection ConstantConditions
-                path = mBinding.getFlutterAssets().getAssetFilePathByName(asset, packageName);
-            }
-        } else if (mRegistrar != null) {
-            if (TextUtils.isEmpty(packageName)) {
-                path = mRegistrar.lookupKeyForAsset(asset);
-            } else {
-                path = mRegistrar.lookupKeyForAsset(asset, packageName);
+                return mBinding.getFlutterAssets().getAssetFilePathByName(asset, packageName);
             }
         }
-        return path;
-    }
-
-
-    private void initWithRegistrar(@NonNull Registrar registrar) {
-        mRegistrar = registrar;
-        mContext = new WeakReference<>(registrar.activeContext());
-        init(registrar.messenger());
-    }
-
-    private void initWithBinding(@NonNull FlutterPluginBinding binding) {
-        mBinding = binding;
-        mContext = new WeakReference<>(binding.getApplicationContext());
-        init(binding.getBinaryMessenger());
+        return null;
     }
 
     /**
-     * Maybe call init more than once
+     * Initialize event channel
      *
      * @param messenger BinaryMessenger from flutter engine
      */
@@ -267,7 +225,6 @@ public class FijkPlugin implements MethodCallHandler, FlutterPlugin, ActivityAwa
             volStep = Math.max(1.0f / (float) max, volStep);
         }
     }
-
 
     @Override
     public void onMethodCall(@NonNull MethodCall call, @NonNull Result result) {
@@ -380,6 +337,7 @@ public class FijkPlugin implements MethodCallHandler, FlutterPlugin, ActivityAwa
                         setScreenBrightness(brightness);
                     }
                 }
+                result.success(null);
                 break;
             case "requestAudioFocus":
                 audioFocus(true);
@@ -435,12 +393,11 @@ public class FijkPlugin implements MethodCallHandler, FlutterPlugin, ActivityAwa
                 result.success(null);
                 break;
             default:
-                Log.w("FLUTTER", "onMethod Call, name: " + call.method);
+                Log.w("FLUTTER", "onMethodCall, name: " + call.method);
                 result.notImplemented();
                 break;
         }
     }
-
 
     @Override
     public void onPlayingChange(int delta) {
@@ -466,12 +423,6 @@ public class FijkPlugin implements MethodCallHandler, FlutterPlugin, ActivityAwa
         Log.i("FIJKPLAYER", "onAudioFocusChange: " + focusChange);
     }
 
-    /**
-     * Set screen on enable or disable
-     *
-     * @param on true to set keep screen on enable
-     *           false to set keep screen on disable
-     */
     @Override
     public void setScreenOn(boolean on) {
         Activity activity = activity();
@@ -484,11 +435,6 @@ public class FijkPlugin implements MethodCallHandler, FlutterPlugin, ActivityAwa
         }
     }
 
-    /**
-     * Check if screen is kept on
-     *
-     * @return true if screen is kept on
-     */
     private boolean isScreenKeptOn() {
         Activity activity = activity();
         if (activity == null || activity.getWindow() == null)
@@ -496,7 +442,6 @@ public class FijkPlugin implements MethodCallHandler, FlutterPlugin, ActivityAwa
         int flag = activity.getWindow().getAttributes().flags;
         return (flag & WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) != 0;
     }
-
 
     private float getScreenBrightness() {
         Activity activity = activity();
@@ -528,7 +473,6 @@ public class FijkPlugin implements MethodCallHandler, FlutterPlugin, ActivityAwa
     }
 
     @TargetApi(26)
-    @SuppressWarnings("deprecation")
     private void requestAudioFocus() {
         AudioManager audioManager = audioManager();
         if (audioManager == null)
@@ -544,7 +488,7 @@ public class FijkPlugin implements MethodCallHandler, FlutterPlugin, ActivityAwa
                     new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
                             .setAudioAttributes(audioAttributes)
                             .setAcceptsDelayedFocusGain(true)
-                            .setOnAudioFocusChangeListener(this) // Need to implement listener
+                            .setOnAudioFocusChangeListener(this)
                             .build();
             mAudioFocusRequest = audioFocusRequest;
             audioManager.requestAudioFocus(audioFocusRequest);
@@ -556,7 +500,6 @@ public class FijkPlugin implements MethodCallHandler, FlutterPlugin, ActivityAwa
     }
 
     @TargetApi(26)
-    // @SuppressWarnings("deprecation")
     private void abandonAudioFocus() {
         AudioManager audioManager = audioManager();
         if (audioManager == null)
@@ -572,10 +515,6 @@ public class FijkPlugin implements MethodCallHandler, FlutterPlugin, ActivityAwa
         mAudioFocusRequested = false;
     }
 
-    /**
-     * @param request true to request audio focus
-     *                false to release audio focus
-     */
     @Override
     public void audioFocus(boolean request) {
         Log.i("FIJKPLAYER", "audioFocus " + (request ? "request" : "release") + " state:" + mAudioFocusRequested);
@@ -634,7 +573,6 @@ public class FijkPlugin implements MethodCallHandler, FlutterPlugin, ActivityAwa
         return vol;
     }
 
-    @SuppressWarnings("SameReturnValue")
     private float volumeMute() {
         setSystemVolume(0.0f);
         return 0.0f;
